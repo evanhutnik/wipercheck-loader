@@ -1,7 +1,12 @@
 package loader
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/evanhutnik/wipercheck-loader/pkg/openweather"
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"math"
 	"os"
@@ -20,6 +25,7 @@ type Loader struct {
 	duration     time.Duration
 
 	ow     *openweather.Client
+	rc     *redis.Client
 	logger *zap.SugaredLogger
 }
 
@@ -61,6 +67,10 @@ func New() *Loader {
 		openweather.BaseUrlOption(os.Getenv("openweather_baseurl")),
 	)
 
+	l.rc = redis.NewClient(&redis.Options{
+		Addr: os.Getenv("redis_address"),
+	})
+
 	return l
 }
 
@@ -80,10 +90,9 @@ func (l Loader) Load() {
 				"lat", l.coordinate.lat,
 				"long", l.coordinate.lon)
 		}
-		l.logger.Infof("Weather returned for coordinates (%v,%v)", weather.Lat, weather.Lon)
-		//insert into db
 
-		//calculate next step
+		l.processApiResponse(weather)
+
 		column++
 		l.moveRight()
 		if column > maxColumn {
@@ -100,6 +109,65 @@ func (l Loader) Load() {
 		}
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func (l *Loader) processApiResponse(weather *openweather.OneCallResponse) {
+	for _, hourly := range weather.Hourly {
+		err := verifyHourlyData(hourly)
+		if err != nil {
+			l.logger.Warnw("Hourly weather error",
+				"coordinate", fmt.Sprintf("%v,%v", weather.Lat, weather.Lon),
+				"epoch", hourly.Time,
+				"error", err.Error())
+		}
+
+		err = l.insertHourlyData(hourly, weather.Lat, weather.Lon)
+		if err != nil {
+			l.logger.Warnw("Error inserting weather data",
+				"coordinate", fmt.Sprintf("%v,%v", weather.Lat, weather.Lon),
+				"epoch", hourly.Time,
+				"error", err.Error())
+		}
+	}
+}
+
+func verifyHourlyData(hourly openweather.HourlyWeather) error {
+	var msg string
+	if len(hourly.Weather) == 0 {
+		msg = "missing hourly weather"
+	} else if hourly.Weather[0].Id == 0 {
+		msg = "missing hourly weather id"
+	} else if hourly.Weather[0].Main == "" {
+		msg = "missing hourly weather main type"
+	} else if hourly.Weather[0].Description == "" {
+		msg = "missing hourly weather type description"
+	}
+	if msg != "" {
+		return errors.New(msg)
+	}
+	return nil
+}
+
+func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64, long float64) error {
+	var key string
+	key = strconv.FormatInt(hourly.Time, 10)
+
+	value, err := json.Marshal(hourly)
+	if err != nil {
+		return err
+	}
+
+	gl := &redis.GeoLocation{
+		Name:      string(value),
+		Latitude:  lat,
+		Longitude: long,
+	}
+
+	_, err = l.rc.GeoAdd(context.Background(), key, gl).Result()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (l *Loader) moveRight() {

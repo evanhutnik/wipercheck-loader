@@ -16,3 +16,6 @@
 
 # Go Binaries
 bin/
+
+# Local redis data
+*.rdb

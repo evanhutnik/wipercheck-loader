@@ -8,6 +8,7 @@ type Conditions struct {
 }
 
 type HourlyWeather struct {
+	Time    int64 `json:"dt"`
 	Weather []Conditions
 	Pop     float64
 }
