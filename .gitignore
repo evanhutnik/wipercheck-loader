@@ -17,5 +17,8 @@
 # Go Binaries
 bin/
 
+# Configuration files
+configs
+
 # Local redis data
 *.rdb

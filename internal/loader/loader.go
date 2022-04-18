@@ -9,6 +9,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"math"
+	"math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -82,16 +83,18 @@ func (l Loader) Load() {
 	//ex. if duration = 1 hour (3600 seconds), sqrt(3600) = 60, therefore population square is 60x60
 	maxColumn := math.Sqrt(float64(l.duration / time.Second))
 	maxRow := maxColumn
-	l.logger.Info("Loading hourly weather data...")
+
 	for {
 		weather, err := l.ow.GetHourlyWeather(l.coordinate.lat, l.coordinate.lon)
 		if err != nil {
 			l.logger.Errorw(err.Error(),
 				"lat", l.coordinate.lat,
 				"long", l.coordinate.lon)
+		} else {
+			for _, hourly := range weather.Hourly {
+				go l.processHourlyWeather(hourly, weather.Lat, weather.Lon)
+			}
 		}
-
-		l.processApiResponse(weather)
 
 		column++
 		l.moveRight()
@@ -111,23 +114,22 @@ func (l Loader) Load() {
 	}
 }
 
-func (l *Loader) processApiResponse(weather *openweather.OneCallResponse) {
-	for _, hourly := range weather.Hourly {
-		err := verifyHourlyData(hourly)
-		if err != nil {
-			l.logger.Warnw("Hourly weather error",
-				"coordinate", fmt.Sprintf("%v,%v", weather.Lat, weather.Lon),
-				"epoch", hourly.Time,
-				"error", err.Error())
-		}
+func (l *Loader) processHourlyWeather(hourly openweather.HourlyWeather, lat float64, lon float64) {
+	err := verifyHourlyData(hourly)
+	if err != nil {
+		l.logger.Warnw("Invalid hourly data",
+			"coordinate", fmt.Sprintf("%v,%v", lat, lon),
+			"epoch", hourly.Time,
+			"error", err.Error())
+		return
+	}
 
-		err = l.insertHourlyData(hourly, weather.Lat, weather.Lon)
-		if err != nil {
-			l.logger.Warnw("Error inserting weather data",
-				"coordinate", fmt.Sprintf("%v,%v", weather.Lat, weather.Lon),
-				"epoch", hourly.Time,
-				"error", err.Error())
-		}
+	err = l.insertHourlyData(hourly, lat, lon)
+	if err != nil {
+		l.logger.Warnw("Error inserting weather data",
+			"coordinate", fmt.Sprintf("%v,%v", lat, lon),
+			"epoch", hourly.Time,
+			"error", err.Error())
 	}
 }
 
@@ -148,11 +150,20 @@ func verifyHourlyData(hourly openweather.HourlyWeather) error {
 	return nil
 }
 
-func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64, long float64) error {
+func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64, lon float64) error {
 	var key string
 	key = strconv.FormatInt(hourly.Time, 10)
 
-	value, err := json.Marshal(hourly)
+	//introducing a random attribute to prevent name overlaps and subsequent overwrites in redis
+	redisHourly := struct {
+		Rand   float64
+		Hourly openweather.HourlyWeather
+	}{
+		Rand:   rand.Float64(),
+		Hourly: hourly,
+	}
+
+	value, err := json.Marshal(redisHourly)
 	if err != nil {
 		return err
 	}
@@ -160,7 +171,7 @@ func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64,
 	gl := &redis.GeoLocation{
 		Name:      string(value),
 		Latitude:  lat,
-		Longitude: long,
+		Longitude: lon,
 	}
 
 	_, err = l.rc.GeoAdd(context.Background(), key, gl).Result()
@@ -175,13 +186,13 @@ func (l *Loader) moveRight() {
 	//the closer you are to the poles, the closer the distance between degrees of longitude
 	kmBetweenDegrees := 111.2 * math.Cos(l.coordinate.lat*math.Pi/180)
 	//temporarily adding 180 to longitude so we can work with all positive numbers
-	tempLong := l.coordinate.lon + 180
+	tempLon := l.coordinate.lon + 180
 	//moving coordinate to the right (increasing longitude) by amount of stepDistance
-	tempLong = tempLong + l.stepDistance/kmBetweenDegrees
+	tempLon = tempLon + l.stepDistance/kmBetweenDegrees
 	//handling 180 -> -180 longitudinal wraparound
-	tempLong = math.Mod(tempLong, 360)
+	tempLon = math.Mod(tempLon, 360)
 
-	l.coordinate.lon = tempLong - 180
+	l.coordinate.lon = tempLon - 180
 }
 
 func (l *Loader) moveDown() {
