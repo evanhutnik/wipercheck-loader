@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/evanhutnik/wipercheck-loader/pkg/openweather"
+	"github.com/evanhutnik/wipercheck-loader/internal/openweather"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"math"

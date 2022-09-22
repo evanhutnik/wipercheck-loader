@@ -10,7 +10,31 @@ import (
 	"strconv"
 )
 
+type Conditions struct {
+	Id          int
+	Main        string
+	Description string
+	Icon        string
+}
+
+type HourlyWeather struct {
+	Time    int64 `json:"dt"`
+	Weather []Conditions
+	Pop     float64
+}
+
+type OneCallResponse struct {
+	Lat    float64
+	Lon    float64
+	Hourly []HourlyWeather
+}
+
 type ClientOption func(*Client)
+
+type Client struct {
+	apiKey  string
+	baseUrl string
+}
 
 func ApiKeyOption(apiKey string) ClientOption {
 	return func(c *Client) {
@@ -24,20 +48,12 @@ func BaseUrlOption(baseUrl string) ClientOption {
 	}
 }
 
-type Client struct {
-	apiKey  string
-	baseUrl string
-}
-
 func New(opts ...ClientOption) *Client {
 	c := &Client{}
 
 	for _, opt := range opts {
 		opt(c)
 	}
-
-	fmt.Sprintf("apikey: %v", c.apiKey)
-	fmt.Sprintf("baseurl: %v", c.baseUrl)
 
 	if c.apiKey == "" {
 		panic("Missing apikey in openweather client")
