@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/evanhutnik/wipercheck-loader/internal/openweather"
 	"github.com/go-redis/redis/v8"
+	_ "github.com/joho/godotenv/autoload"
 	"go.uber.org/zap"
 	"math"
 	"math/rand"
@@ -76,6 +77,7 @@ func New() *Loader {
 }
 
 func (l Loader) Load() {
+	l.logger.Info("Starting loading process")
 	start := l.coordinate
 	//starting column and row values for loading
 	column, row := float64(1), float64(1)
@@ -85,6 +87,7 @@ func (l Loader) Load() {
 	maxRow := maxColumn
 
 	for {
+		l.logger.Infof("Retrieving hourly weather for %v, %v", l.coordinate.lat, l.coordinate.lon)
 		weather, err := l.ow.GetHourlyWeather(l.coordinate.lat, l.coordinate.lon)
 		if err != nil {
 			l.logger.Errorw(err.Error(),
