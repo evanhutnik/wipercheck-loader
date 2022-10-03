@@ -79,13 +79,14 @@ func New() *Loader {
 func (l Loader) Load() {
 	l.logger.Info("Starting loading process")
 	start := l.coordinate
-	//starting column and row values for loading
+	// column and row values for loading
 	column, row := float64(1), float64(1)
-	//because we are loading 1 coordinate/second, square root of load duration (in seconds) is max column/row value.
-	//ex. if duration = 1 hour (3600 seconds), sqrt(3600) = 60, therefore population square is 60x60
+	// because we are loading 1 coordinate/second, square root of load duration (in seconds) is max column/row value.
+	// ex. if duration = 1 hour (3600 seconds), sqrt(3600) = 60, therefore population square is 60x60
 	maxColumn := math.Sqrt(float64(l.duration / time.Second))
 	maxRow := maxColumn
 
+	// loading process runs in a continuous loop
 	for {
 		l.logger.Infof("Retrieving hourly weather for %v, %v", l.coordinate.lat, l.coordinate.lon)
 		weather, err := l.ow.GetHourlyWeather(l.coordinate.lat, l.coordinate.lon)
@@ -94,6 +95,7 @@ func (l Loader) Load() {
 				"lat", l.coordinate.lat,
 				"long", l.coordinate.lon)
 		} else {
+			// spinning up a new goroutine to insert each hour of weather data
 			for _, hourly := range weather.Hourly {
 				go l.processHourlyWeather(hourly, weather.Lat, weather.Lon)
 			}
@@ -157,7 +159,8 @@ func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64,
 	var key string
 	key = strconv.FormatInt(hourly.Time, 10)
 
-	//introducing a random attribute to prevent name overlaps and subsequent overwrites in redis
+	// introducing a random attribute so each name is different - if one coordinate has the same name (weather data)
+	// as another, it will overwrite it otherwise
 	redisHourly := struct {
 		Rand   float64
 		Hourly openweather.HourlyWeather
@@ -185,20 +188,20 @@ func (l *Loader) insertHourlyData(hourly openweather.HourlyWeather, lat float64,
 }
 
 func (l *Loader) moveRight() {
-	//depending on your distance from the equator, there is a different distance between each degree of longitude.
-	//the closer you are to the poles, the closer the distance between degrees of longitude
+	// depending on your distance from the equator, there is a different distance between each degree of longitude.
+	// the closer you are to the poles, the closer the distance between degrees of longitude
 	kmBetweenDegrees := 111.2 * math.Cos(l.coordinate.lat*math.Pi/180)
-	//temporarily adding 180 to longitude so we can work with all positive numbers
+	// temporarily adding 180 to longitude so we can work with all positive numbers
 	tempLon := l.coordinate.lon + 180
-	//moving coordinate to the right (increasing longitude) by amount of stepDistance
+	// moving coordinate to the right (increasing longitude) by amount of stepDistance
 	tempLon = tempLon + l.stepDistance/kmBetweenDegrees
-	//handling 180 -> -180 longitudinal wraparound
+	// handling 180 -> -180 longitudinal wraparound
 	tempLon = math.Mod(tempLon, 360)
 
 	l.coordinate.lon = tempLon - 180
 }
 
 func (l *Loader) moveDown() {
-	//assuming earth is a perfect sphere (for simplicity's sake), the distance between degrees of latitude is constant (111.2km)
+	// assuming earth is a perfect sphere for simplicity's sake, the distance between degrees of latitude is constant at 111.2km
 	l.coordinate.lat = l.coordinate.lat - l.stepDistance/111.2
 }

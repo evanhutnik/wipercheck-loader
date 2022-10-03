@@ -94,7 +94,7 @@ func (c Client) GetHourlyWeather(lat float64, long float64) (*OneCallResponse, e
 		err = errors.New(fmt.Sprintf("error reading body of response: %s", err.Error()))
 		return nil, err
 	}
-	//unmarshal into object
+
 	var respObj OneCallResponse
 	err = json.Unmarshal(body, &respObj)
 	if err != nil {
